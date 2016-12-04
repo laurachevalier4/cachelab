@@ -39,7 +39,6 @@ typedef struct block
 	/* struct for set, made up of blocks */
 typedef struct set
 	{
-	  int size; // number of blocks in LRU list / in set
 	  cache_block *LRU_head; // for each set, keep track of a list of LRU blocks (with the most recently used at the head)
 	  cache_block *LRU_tail; 
 	} cache_set;
@@ -76,10 +75,6 @@ void accessData(mem_addr_t addr);
  * printUsage - Print usage info
  */
 void printUsage(char* argv[]);
-
-void insert(cache_block *b, cache_set set);
-
-void delete(cache_block *b, cache_set set);
 /**************************************************************************/
 
 
@@ -99,6 +94,7 @@ my_cache c1;
 int miss_count = 0;     /* cache miss */
 int hit_count = 0;      /* cache hit */
 int eviction_count = 0; /* A block is evicted from the cache */
+int *size;
 /**************************************************************************/
 
 
@@ -122,6 +118,7 @@ void accessData(mem_addr_t addr)
   cache_block *curr = c1.sets[set_index].LRU_head;
   
   // loop through c1->sets[set_index] and compare the tag in the given addr to the tag in each block of the set
+  // printf("set size: %d\n", size[set_index]);
   while (curr->next != NULL && curr->tag != tag)
   {
     // loop through the linked list of blocks in the set until the tag is found
@@ -131,102 +128,48 @@ void accessData(mem_addr_t addr)
   if (curr->tag == tag && curr->valid == 1) // the correct data is already in the cache, so delete and reinsert
   {
     hit_count++; // increase the hit count
-    if (c1.sets[set_index].size > 1)
+    if (size[set_index] > 1)
     {
-      delete(curr, c1.sets[set_index]); // first, delete the block
-      insert(curr, c1.sets[set_index]); // [re]insert block into LRU list
-      // shouldn't affect set size
+      curr->prev->next = curr->next; // delete the block
+      curr->next->prev = curr->prev;
+      curr->next = c1.sets[set_index].LRU_head; // and put it at the head
+      curr->prev = NULL;
+      // don't change set size
     }
   }
   else // the correct data is not in the cache, so make a new block and insert into the cache and update LRU list
   {
-    printf("set size: %d\n", c1.sets[set_index].size); // doesn't exceed 1
-    printf("set index: %d\n", set_index);
-    if (c1.sets[set_index].size == 0) // when set empty
+    if (size[set_index] == 0) // when set empty
     {
       curr->tag = tag;
       curr->valid = 1;
       c1.sets[set_index].LRU_head = curr;
       c1.sets[set_index].LRU_tail = curr;
-      c1.sets[set_index].size++; // from 0 to 1
+      size[set_index]++;
     }
     else 
     {
-      if (c1.sets[set_index].size >=  E) // if the number of blocks in the set would exceed the associativity, delete the tail
+      if (size[set_index] >=  E) // if the number of blocks in the set would exceed the associativity, delete the tail
       {
-        delete(c1.sets[set_index].LRU_tail, c1.sets[set_index]);
+        c1.sets[set_index].LRU_tail = c1.sets[set_index].LRU_tail->prev;
+        c1.sets[set_index].LRU_tail->next = NULL;
         eviction_count++;
       }
       // insert a new block before the head
       c1.sets[set_index].LRU_head->prev = (cache_block *)malloc(sizeof(cache_block));
       curr = c1.sets[set_index].LRU_head->prev;
       curr->tag = tag;
-      //insert(curr, c1.sets[set_index]);
       curr->next = c1.sets[set_index].LRU_head; 
       curr->prev = NULL;
       curr->valid = 1; // set valid bit to 1
       c1.sets[set_index].LRU_head = curr; // make b the new head of the list, pointing to the previous head
-      //c1.sets[set_index].size++; // if I don't increment here, there are no evictions; For some reason, I'm coming across the same set more times than I should? See Google doc.
+      printf("set index: %d\n", set_index);
+      printf("set size: %d\n", size[set_index]);
+      size[set_index]++;
     }
     miss_count++;
   } 
 } // end of accessData
-
-void insert(cache_block *curr, cache_set set)
-{
-  if (set.size >=  E) // if the number of blocks in the set would exceed the associativity, delete the tail
-  {
-    delete(set.LRU_tail, set);
-    eviction_count++;
-  }
-  if (set.LRU_head->valid == 0) /* if no items in list */
-  {
-    curr->valid = 1;
-    curr->next = NULL;
-    curr->prev = NULL;
-    set.LRU_head = curr;
-    set.LRU_tail = curr;
-  } 
-  else
-  {
-    curr->next = set.LRU_head; 
-    curr->prev = NULL;
-    curr->valid = 1;
-    set.LRU_head = curr;
-  }
-  set.size++; //increment number of blocks in LRU list
-}
-
-void delete(cache_block *curr, cache_set set)
-{
-  //might be head, middle, or tail
-  curr->valid = 0;
-  set.size--;
-  //printf("set size: %d\n", set.size);
-  if (curr->prev == NULL && curr->next == NULL) // if b is the only block in the list
-  {
-    set.LRU_head->valid = 0;
-    set.LRU_tail->valid = 0;
-  }
-  else if (curr->prev == NULL) // if b is the head
-  {
-    set.LRU_head = curr->next;
-    set.LRU_head->prev = NULL;
-  }
-  else if (curr->next == NULL) // if b is the tail
-  {
-    set.LRU_tail = curr->prev;
-    set.LRU_tail->next = NULL;
-  }
-  else // all other blocks 
-  { 
-    cache_block *bl1 = curr->prev;
-    cache_block *bl2 = curr->next;
-    bl1->next = bl2;
-    bl2->prev = bl1;
-  }
-}
-
 
 
 /*
@@ -273,16 +216,19 @@ int main(int argc, char* argv[])
 
     /* Need to do this computation once we actually have s... */
 	int num_sets = pow(2.0, s); // num_sets is number of sets
-        printf("num_sets: %d\n", num_sets);
         
 	/* Initialize cache, given global variables */
 	c1.sets = (cache_set*)malloc(sizeof(cache_set) * num_sets); //initialize cache with 2^s sets
-
-	/* Initialize each set with number of blocks per set (E) */
+	size = (int *)malloc(sizeof(int) * num_sets);
 	int i;
 	for (i = 0; i < num_sets; i++)
 	{
-	  c1.sets[i].size = 0; // use size to keep track of number of blocks already in a set (init to 0)
+	  size[i] = 0;
+	}
+
+	/* Initialize each set with number of blocks per set (E) */
+	for (i = 0; i < num_sets; i++)
+	{
 	  c1.sets[i].LRU_head = (cache_block *)malloc(sizeof(cache_block)); // initialize each set with a head block
 	  c1.sets[i].LRU_head->valid = 0;
 	  c1.sets[i].LRU_head->tag = -1;
