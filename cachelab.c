@@ -44,10 +44,10 @@ typedef struct set
 	} cache_set;
 
 	/* struct for cache, made up of sets */
-	typedef struct cache
-	{
-	  cache_set *sets;
-	} my_cache;
+typedef struct cache
+{
+  cache_set *sets;
+} my_cache;
 
 /**************************************************************************/
 /* Declarations of the functions currently implemented in this file */
@@ -114,6 +114,7 @@ void accessData(mem_addr_t addr)
   // 3) if the data exists already, increase hit count and adjust c1->LRU_head (move the block from its position in the linked list to the head)
   // 4) if the data does not exist or it exists but is invalid, increase the miss count and put the new block at the head of the LRU list, kicking out the tail if set full (increase the eviction count) and changing valid bit to 0
   int set_index = (addr >> b) & ((1<<s) - 1);
+  if (set_index == 17) printf("hi\n"); // prints hi before AND after 17... whyyyy
   int tag = (addr >> (s + b)); //get just the tag bits
   cache_block *curr = c1.sets[set_index].LRU_head;
   
@@ -126,7 +127,7 @@ void accessData(mem_addr_t addr)
   }
 
   if (curr->tag == tag && curr->valid == 1) // the correct data is already in the cache, so delete and reinsert
-  {
+  { 
     hit_count++; // increase the hit count
     if (size[set_index] > 1)
     {
@@ -146,14 +147,18 @@ void accessData(mem_addr_t addr)
       c1.sets[set_index].LRU_head = curr;
       c1.sets[set_index].LRU_tail = curr;
       size[set_index]++;
+      printf("size at index %d: %d\n", set_index, size[set_index]);
     }
     else 
     {
       if (size[set_index] >=  E) // if the number of blocks in the set would exceed the associativity, delete the tail
       {
+        cache_block *temp = c1.sets[set_index].LRU_tail;
         c1.sets[set_index].LRU_tail = c1.sets[set_index].LRU_tail->prev;
+	free(temp); // correct way to free?
         c1.sets[set_index].LRU_tail->next = NULL;
         eviction_count++;
+        size[set_index]--;
       }
       // insert a new block before the head
       c1.sets[set_index].LRU_head->prev = (cache_block *)malloc(sizeof(cache_block));
@@ -163,9 +168,9 @@ void accessData(mem_addr_t addr)
       curr->prev = NULL;
       curr->valid = 1; // set valid bit to 1
       c1.sets[set_index].LRU_head = curr; // make b the new head of the list, pointing to the previous head
+      size[set_index]++;
       printf("set index: %d\n", set_index);
       printf("set size: %d\n", size[set_index]);
-      size[set_index]++;
     }
     miss_count++;
   } 
