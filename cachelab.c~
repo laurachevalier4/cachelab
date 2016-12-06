@@ -75,6 +75,8 @@ void accessData(mem_addr_t addr);
  * printUsage - Print usage info
  */
 void printUsage(char* argv[]);
+
+void printList(cache_block *head, int set);
 /**************************************************************************/
 
 
@@ -94,7 +96,8 @@ my_cache c1;
 int miss_count = 0;     /* cache miss */
 int hit_count = 0;      /* cache hit */
 int eviction_count = 0; /* A block is evicted from the cache */
-int size[];
+int *size;
+int set_index;
 /**************************************************************************/
 
 
@@ -113,13 +116,12 @@ void accessData(mem_addr_t addr)
   // 2) search for correct block by comparing the tag of each block in the set to the tag in the given address; ALSO make sure that valid bit is set
   // 3) if the data exists already, increase hit count and adjust c1->LRU_head (move the block from its position in the linked list to the head)
   // 4) if the data does not exist or it exists but is invalid, increase the miss count and put the new block at the head of the LRU list, kicking out the tail if set full (increase the eviction count) and changing valid bit to 0
-  int set_index = (addr >> b) & ((1<<s) - 1);
-  if (set_index == 17) printf("hi\n"); // prints hi before AND after 17... whyyyy
+ 
+  set_index = (addr >> b) & ((1<<s) - 1);
   int tag = (addr >> (s + b)); //get just the tag bits
   cache_block *curr = c1.sets[set_index].LRU_head;
   
   // loop through c1->sets[set_index] and compare the tag in the given addr to the tag in each block of the set
-  // printf("set size: %d\n", size[set_index]);
   while (curr->next != NULL && curr->tag != tag)
   {
     // loop through the linked list of blocks in the set until the tag is found
@@ -131,11 +133,27 @@ void accessData(mem_addr_t addr)
     hit_count++; // increase the hit count
     if (size[set_index] > 1)
     {
-      curr->prev->next = curr->next; // delete the block
-      curr->next->prev = curr->prev;
-      curr->next = c1.sets[set_index].LRU_head; // and put it at the head
-      curr->prev = NULL;
-      // don't change set size
+      if (curr->prev != NULL) // if the hit is the head, we don't need to do anything
+      {
+        if (curr->next != NULL)
+        {
+          curr->prev->next = curr->next; // delete the block
+          curr->next->prev = curr->prev;
+          curr->next = c1.sets[set_index].LRU_head; // and put it at the head
+          curr->prev = NULL;
+          c1.sets[set_index].LRU_head = curr;
+        }
+        else if (curr->next == NULL)
+        {
+          curr->prev->next = NULL;
+          c1.sets[set_index].LRU_tail =  curr->prev;
+          curr->prev = NULL;
+          c1.sets[set_index].LRU_head->prev = curr;
+          curr->next = c1.sets[set_index].LRU_head;
+          c1.sets[set_index].LRU_head = curr;
+        }
+      } 
+      // no change in set size
     }
   }
   else // the correct data is not in the cache, so make a new block and insert into the cache and update LRU list
@@ -147,35 +165,46 @@ void accessData(mem_addr_t addr)
       c1.sets[set_index].LRU_head = curr;
       c1.sets[set_index].LRU_tail = curr;
       size[set_index]++;
-      printf("size at index %d: %d\n", set_index, size[set_index]);
     }
-    else 
+    else // set not empty
     {
+      //if (set_index == 19) printf("\nmiss, set not empty\n");
       if (size[set_index] >=  E) // if the number of blocks in the set would exceed the associativity, delete the tail
       {
         cache_block *temp = c1.sets[set_index].LRU_tail;
         c1.sets[set_index].LRU_tail = c1.sets[set_index].LRU_tail->prev;
-	free(temp); // correct way to free?
+	free(temp);
         c1.sets[set_index].LRU_tail->next = NULL;
         eviction_count++;
         size[set_index]--;
       }
       // insert a new block before the head
-      c1.sets[set_index].LRU_head->prev = (cache_block *)malloc(sizeof(cache_block));
-      curr = c1.sets[set_index].LRU_head->prev;
-      curr->tag = tag;
-      curr->next = c1.sets[set_index].LRU_head; 
-      curr->prev = NULL;
-      curr->valid = 1; // set valid bit to 1
-      c1.sets[set_index].LRU_head = curr; // make b the new head of the list, pointing to the previous head
-      size[set_index]++;
-      printf("set index: %d\n", set_index);
-      printf("set size: %d\n", size[set_index]);
+      cache_block *temp = (cache_block *)malloc(sizeof(cache_block));
+      if(!temp) printf("error in allocating block");
+      c1.sets[set_index].LRU_head->prev = temp;
+      temp->tag = tag;
+      temp->next = c1.sets[set_index].LRU_head; 
+      temp->prev = NULL;
+      temp->valid = 1; // set valid bit to 1
+      c1.sets[set_index].LRU_head = temp; // make b the new head of the list, pointing to the previous head
+      size[set_index]++; // without this line, I don't get a segfault; hit count and miss count are correct
     }
     miss_count++;
   } 
+  //if(set_index == 17) printf("\nAccess Data END\n"); 
 } // end of accessData
 
+
+void printList(cache_block *head, int set)
+{
+  printf("LIST of set %d: ", set);
+  while(head->valid == 1)
+  {
+    printf("tag : %d -> ", head->tag);
+    if (head->next == NULL) break;
+    head = head->next;
+  }
+}
 
 /*
  * main - Main routine 
